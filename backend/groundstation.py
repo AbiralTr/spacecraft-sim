@@ -37,7 +37,7 @@ class GroundStation:
         return (x, y, z)
     
     def check_spacecraft_visibility(self, time, spacecraft) -> bool:
-        satellite_position = spacecraft.get_position(time)
+        satellite_position = tuple(spacecraft.get_position(time).values())
         station_position = self.get_cartesian_coordinates
         
         to_sat = MathHelpers.subtract_two_vectors(satellite_position, station_position)
