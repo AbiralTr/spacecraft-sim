@@ -27,7 +27,7 @@ class Spacecraft:
     def get_inclination(self):
         """Unit: Degrees"""
         return self.inclination
-
+    
     def get_position(self, time):
         angle = self.get_angle(time)
         a = 6371 + self.altitude
@@ -40,6 +40,7 @@ class Spacecraft:
 
         return (x, y_inc, z_inc)
 
+    @property
     def get_period(self):
         """Unit: Seconds"""
         earth_radius = 6371
@@ -48,4 +49,4 @@ class Spacecraft:
         return 2 * math.pi * math.sqrt(a**3 / u)
     
     def get_angle(self, time):
-        return (2 * math.pi) * (time / self.get_period()) % (2 * math.pi)
+        return (2 * math.pi) * (time / self.get_period) % (2 * math.pi)
