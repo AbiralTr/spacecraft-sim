@@ -48,7 +48,11 @@ class Spacecraft:
         inc = math.radians(self.get_inclination)
         y_inc = y * math.cos(inc)
         z_inc = y * math.sin(inc)
-        return (x, y_inc, z_inc)
+        return {
+            "x": x,
+            "y": y_inc,
+            "z": z_inc
+        }
         
     @property
     def get_period(self):
