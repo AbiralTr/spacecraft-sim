@@ -15,11 +15,7 @@ class GroundStation:
     @property
     def get_name(self):
         return self.name
-
-    @property
-    def get_spacecrafts(self):
-        return self.spacecraft_list
-
+    
     @property
     def get_id(self):
         return self.groundstation_id
@@ -55,4 +51,39 @@ class GroundStation:
 
         return False
         
+    def get_contact_windows(self, spacecraft, start_time=0, max_search_time=None):
+        interval = 60 # seconds
+        if max_search_time is None:
+            max_search_time = spacecraft.get_period * 2
 
+        time = start_time
+        deadline = start_time + max_search_time
+
+        is_visible = self.check_spacecraft_visibility(time, spacecraft)
+
+        while not is_visible:
+            if time > deadline:
+                raise TimeoutError("No contact window found within max_search_time")
+            time += interval
+            is_visible = self.check_spacecraft_visibility(time, spacecraft)
+
+        start = time
+
+        while is_visible:
+            if time > deadline:
+                raise TimeoutError("Contact window did not end within max_search_time")
+            time += interval
+            is_visible = self.check_spacecraft_visibility(time, spacecraft)
+
+        end = time
+
+        return (start, end)
+
+    def get_all_contact_windows(self, spacecraft, start_time=0, max_search_time=None):
+        list = []
+        while start_time < 86400:
+            window = self.get_contact_windows(spacecraft, start_time, max_search_time)
+            start_time = window[1]
+            list.append(window)
+        
+        return list
