@@ -1,5 +1,7 @@
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from spacecraft import Spacecraft
 from groundstation import GroundStation
 
@@ -12,18 +14,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
+@app.get("/api/health")
+def read_health():
     return {"status": "ok"}
 
-@app.get("/position")
+@app.get("/api/position")
 def read_position(time: float, altitude: float = 500, inclination: float = 0, eccentricity: float = 0.1):
     spacecraft = Spacecraft("ZETA", altitude, inclination, eccentricity)
     position = spacecraft.get_position(time)
     position["period"] = spacecraft.get_period
     return position
 
-@app.get("/contact-windows")
+@app.get("/api/contact-windows")
 def read_contact_windows(
     altitude: float = 500,
     inclination: float = 0,
@@ -39,3 +41,7 @@ def read_contact_windows(
     except TimeoutError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return [{"start": start, "end": end} for start, end in windows]
+
+frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.isdir(frontend_dist):
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")

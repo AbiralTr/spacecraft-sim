@@ -4,7 +4,9 @@ import { Layout, Form, InputNumber, Button, Card, Descriptions, Typography, Aler
 const { Header, Content, Footer } = Layout
 const { Title, Paragraph, Text } = Typography
 
-const API_BASE = 'http://localhost:8000'
+// In dev, Vite (5173) and FastAPI (8000) run as separate origins.
+// In production, FastAPI serves this app itself, so requests are same-origin.
+const API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : ''
 
 function App() {
   const [orbitForm] = Form.useForm()
@@ -29,7 +31,7 @@ function App() {
         inclination: values.inclination,
         eccentricity: values.eccentricity,
       })
-      const res = await fetch(`${API_BASE}/position?${params.toString()}`)
+      const res = await fetch(`${API_BASE}/api/position?${params.toString()}`)
       if (!res.ok) {
         throw new Error(`Backend returned ${res.status}`)
       }
@@ -54,7 +56,7 @@ function App() {
         latitude: values.latitude,
         station_altitude: values.stationAltitude,
       })
-      const res = await fetch(`${API_BASE}/contact-windows?${params.toString()}`)
+      const res = await fetch(`${API_BASE}/api/contact-windows?${params.toString()}`)
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         throw new Error(body?.detail || `Backend returned ${res.status}`)
