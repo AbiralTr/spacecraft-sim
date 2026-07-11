@@ -6,13 +6,17 @@ import * as Cesium from 'cesium'
 // clock/timeline to something concrete.
 const EPOCH = Cesium.JulianDate.fromIso8601('2026-01-01T00:00:00Z')
 
+const EARTH_RADIUS_KM = 6371
+
 function toCartesian(point) {
   return new Cesium.Cartesian3(point.x * 1000, point.y * 1000, point.z * 1000)
 }
 
-function OrbitGlobe({ track, period, station }) {
+function OrbitGlobe({ track, period, stations }) {
   const containerRef = useRef(null)
   const viewerRef = useRef(null)
+  const orbitEntitiesRef = useRef([])
+  const stationEntitiesRef = useRef([])
 
   useEffect(() => {
     const baseLayer = Cesium.ImageryLayer.fromProviderAsync(
@@ -45,17 +49,41 @@ function OrbitGlobe({ track, period, station }) {
     viewer.scene.backgroundColor = Cesium.Color.TRANSPARENT
     viewerRef.current = viewer
 
+    // Default framing before any orbit is selected, so stations are visible immediately.
+    viewer.camera.flyToBoundingSphere(
+      new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, EARTH_RADIUS_KM * 1000 * 1.5),
+      { duration: 0 },
+    )
+
     return () => {
       viewer.destroy()
       viewerRef.current = null
     }
   }, [])
 
+  // Ground stations: fixed set, rendered independently of whichever spacecraft is selected.
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer || !track || track.length === 0 || !period) return
+    if (!viewer || !stations) return
 
-    viewer.entities.removeAll()
+    stationEntitiesRef.current.forEach((entity) => viewer.entities.remove(entity))
+    stationEntitiesRef.current = stations.map((s) =>
+      viewer.entities.add({
+        position: toCartesian(s),
+        point: { pixelSize: 6, color: Cesium.Color.RED },
+      }),
+    )
+  }, [stations])
+
+  // Selected spacecraft's orbit track, redrawn independently of the station markers above.
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer) return
+
+    orbitEntitiesRef.current.forEach((entity) => viewer.entities.remove(entity))
+    orbitEntitiesRef.current = []
+
+    if (!track || track.length === 0 || !period) return
 
     const stop = Cesium.JulianDate.addSeconds(EPOCH, period, new Cesium.JulianDate())
     const positionProperty = new Cesium.SampledPositionProperty()
@@ -73,31 +101,22 @@ function OrbitGlobe({ track, period, station }) {
     viewer.clock.shouldAnimate = true
     viewer.timeline.zoomTo(EPOCH, stop)
 
-    viewer.entities.add({
-      polyline: {
-        positions: pathPositions,
-        width: 2,
-        material: Cesium.Color.CYAN.withAlpha(0.7),
-      },
-    })
-
-    viewer.entities.add({
-      position: positionProperty,
-      point: { pixelSize: 10, color: Cesium.Color.YELLOW },
-    })
-
-    if (station) {
+    orbitEntitiesRef.current.push(
       viewer.entities.add({
-        position: toCartesian(station),
-        point: { pixelSize: 10, color: Cesium.Color.RED },
-        label: {
-          text: 'Ground Station',
-          font: '12px sans-serif',
-          pixelOffset: new Cesium.Cartesian2(0, -16),
-          fillColor: Cesium.Color.WHITE,
+        polyline: {
+          positions: pathPositions,
+          width: 2,
+          material: Cesium.Color.CYAN.withAlpha(0.7),
         },
-      })
-    }
+      }),
+    )
+
+    orbitEntitiesRef.current.push(
+      viewer.entities.add({
+        position: positionProperty,
+        point: { pixelSize: 10, color: Cesium.Color.YELLOW },
+      }),
+    )
 
     // Center on Earth itself rather than the entities' bounding sphere, which
     // would drift off-center since the orbit isn't symmetric around the origin.
@@ -105,7 +124,7 @@ function OrbitGlobe({ track, period, station }) {
     viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, maxRadius), {
       duration: 0,
     })
-  }, [track, period, station])
+  }, [track, period])
 
   return <div ref={containerRef} style={{ width: '100%', height: 480 }} />
 }

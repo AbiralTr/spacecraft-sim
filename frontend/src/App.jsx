@@ -1,120 +1,70 @@
 import { useState, useEffect } from 'react'
-import { Layout, Form, InputNumber, Button, Card, Descriptions, Typography, Alert, Table } from 'antd'
+import { Layout, Row, Col, Card, Typography } from 'antd'
 import OrbitGlobe from './OrbitGlobe'
+import CreateSpacecraftCard from './CreateSpacecraftCard'
+import SpacecraftDetailCard from './SpacecraftDetailCard'
+import GroundStationsCard from './GroundStationsCard'
 
 const { Header, Content, Footer } = Layout
-const { Title, Paragraph, Text } = Typography
+const { Title } = Typography
 
 // In dev, Vite (5173) and FastAPI (8000) run as separate origins.
 // In production, FastAPI serves this app itself, so requests are same-origin.
 const API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : ''
 
 function App() {
-  const [orbitForm] = Form.useForm()
-  const orbit = Form.useWatch([], orbitForm) ?? {}
-
-  const [result, setResult] = useState(null)
-  const [error, setError] = useState(null)
-  const [loading, setLoading] = useState(false)
-
-  const [windows, setWindows] = useState(null)
-  const [windowsError, setWindowsError] = useState(null)
-  const [windowsLoading, setWindowsLoading] = useState(false)
-
-  const [groundForm] = Form.useForm()
-  const station = Form.useWatch([], groundForm) ?? {}
-
+  const [spacecraftList, setSpacecraftList] = useState([])
+  const [selectedId, setSelectedId] = useState(null)
+  const [stations, setStations] = useState([])
   const [track, setTrack] = useState(null)
   const [period, setPeriod] = useState(null)
-  const [stationPos, setStationPos] = useState(null)
+  const [contactWindows, setContactWindows] = useState(null)
 
   useEffect(() => {
-    if (orbit.altitude == null || orbit.inclination == null || orbit.eccentricity == null) return
-    const handle = setTimeout(async () => {
-      const params = new URLSearchParams({
-        altitude: orbit.altitude,
-        inclination: orbit.inclination,
-        eccentricity: orbit.eccentricity,
+    fetch(`${API_BASE}/api/spacecraft`)
+      .then((res) => res.json())
+      .then((list) => {
+        setSpacecraftList(list)
+        if (list.length > 0) setSelectedId(list[0].id)
       })
-      try {
-        const res = await fetch(`${API_BASE}/api/orbit-track?${params.toString()}`)
-        if (!res.ok) return
-        const data = await res.json()
+    fetch(`${API_BASE}/api/ground-stations`)
+      .then((res) => res.json())
+      .then(setStations)
+  }, [])
+
+  useEffect(() => {
+    if (selectedId == null) {
+      setTrack(null)
+      setPeriod(null)
+      setContactWindows(null)
+      return
+    }
+    fetch(`${API_BASE}/api/spacecraft/${selectedId}/orbit-track`)
+      .then((res) => res.json())
+      .then((data) => {
         setTrack(data.track)
         setPeriod(data.period)
-      } catch {
-        // ignore transient fetch errors while the form is mid-edit
-      }
-    }, 400)
-    return () => clearTimeout(handle)
-  }, [orbit.altitude, orbit.inclination, orbit.eccentricity])
-
-  useEffect(() => {
-    if (station.longitude == null || station.latitude == null || station.stationAltitude == null) return
-    const handle = setTimeout(async () => {
-      const params = new URLSearchParams({
-        longitude: station.longitude,
-        latitude: station.latitude,
-        station_altitude: station.stationAltitude,
       })
-      try {
-        const res = await fetch(`${API_BASE}/api/ground-station?${params.toString()}`)
-        if (!res.ok) return
-        setStationPos(await res.json())
-      } catch {
-        // ignore transient fetch errors while the form is mid-edit
-      }
-    }, 400)
-    return () => clearTimeout(handle)
-  }, [station.longitude, station.latitude, station.stationAltitude])
+    fetch(`${API_BASE}/api/spacecraft/${selectedId}/contact-windows`)
+      .then((res) => res.json())
+      .then(setContactWindows)
+  }, [selectedId])
 
-  const onFinishPosition = async (values) => {
-    setLoading(true)
-    setError(null)
-    setResult(null)
-    try {
-      const params = new URLSearchParams({
-        time: values.time,
-        altitude: values.altitude,
-        inclination: values.inclination,
-        eccentricity: values.eccentricity,
-      })
-      const res = await fetch(`${API_BASE}/api/position?${params.toString()}`)
-      if (!res.ok) {
-        throw new Error(`Backend returned ${res.status}`)
-      }
-      setResult(await res.json())
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
+  const handleCreated = (created) => {
+    setSpacecraftList((list) => [...list, created])
+    setSelectedId(created.id)
   }
 
-  const onFinishGroundStation = async (values) => {
-    setWindowsLoading(true)
-    setWindowsError(null)
-    setWindows(null)
-    try {
-      const params = new URLSearchParams({
-        altitude: orbit.altitude,
-        inclination: orbit.inclination,
-        eccentricity: orbit.eccentricity,
-        longitude: values.longitude,
-        latitude: values.latitude,
-        station_altitude: values.stationAltitude,
-      })
-      const res = await fetch(`${API_BASE}/api/contact-windows?${params.toString()}`)
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        throw new Error(body?.detail || `Backend returned ${res.status}`)
-      }
-      setWindows(await res.json())
-    } catch (err) {
-      setWindowsError(err.message)
-    } finally {
-      setWindowsLoading(false)
-    }
+  const handleUpdated = (updated) => {
+    setSpacecraftList((list) => list.map((s) => (s.id === updated.id ? updated : s)))
+  }
+
+  const handleDeleted = (deletedId) => {
+    setSpacecraftList((list) => {
+      const remaining = list.filter((s) => s.id !== deletedId)
+      setSelectedId(remaining.length > 0 ? remaining[0].id : null)
+      return remaining
+    })
   }
 
   return (
@@ -132,155 +82,39 @@ function App() {
         </Title>
       </Header>
 
-      <Content
-        style={{
-          maxWidth: 640,
-          margin: '48px auto',
-          padding: '0 24px',
-          width: '100%',
-          textAlign: 'center',
-        }}
-      >
-        <Title level={2}>Spacecraft Position</Title>
-        <Paragraph type="secondary">
-          Solves Kepler's equation for the given orbit and time, then returns the spacecraft's
-          position relative to Earth's center.
-        </Paragraph>
+      <Content style={{ maxWidth: 1400, margin: '32px auto', padding: '0 24px', width: '100%' }}>
+        <Row gutter={[24, 24]} align="stretch">
+          <Col xs={24} lg={6}>
+            <CreateSpacecraftCard apiBase={API_BASE} onCreated={handleCreated} />
+          </Col>
 
-        <Card>
-          <Form
-            form={orbitForm}
-            layout="vertical"
-            onFinish={onFinishPosition}
-            initialValues={{ time: 0, altitude: 500, inclination: 20, eccentricity: 0.01 }}
-          >
-            <Form.Item label="Time (seconds since epoch)" name="time" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item label="Altitude (km)" name="altitude" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} min={0} />
-            </Form.Item>
-            <Form.Item label="Inclination (degrees)" name="inclination" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} min={0} max={180} />
-            </Form.Item>
-            <Form.Item label="Eccentricity" name="eccentricity" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} min={0} max={0.99} step={0.01} />
-            </Form.Item>
-            <Form.Item>
-              <Button type="primary" htmlType="submit" loading={loading}>
-                Compute position
-              </Button>
-            </Form.Item>
-          </Form>
-        </Card>
+          <Col xs={24} lg={12}>
+            <Card title="Orbit Visualization" style={{ height: '100%' }} styles={{ body: { padding: 0 } }}>
+              <OrbitGlobe track={track} period={period} stations={stations} />
+            </Card>
+          </Col>
 
-        {error && (
-          <Alert
-            style={{ marginTop: 24 }}
-            type="error"
-            showIcon
-            message="Request failed"
-            description={error}
-          />
-        )}
-
-        {result && (
-          <Card style={{ marginTop: 24 }} title="Result">
-            <Descriptions
-              column={1}
-              bordered
-              size="small"
-              labelStyle={{ textAlign: 'center' }}
-              contentStyle={{ textAlign: 'center' }}
-            >
-              <Descriptions.Item label="x (km)">{result.x.toFixed(3)}</Descriptions.Item>
-              <Descriptions.Item label="y (km)">{result.y.toFixed(3)}</Descriptions.Item>
-              <Descriptions.Item label="z (km)">{result.z.toFixed(3)}</Descriptions.Item>
-              <Descriptions.Item label="Orbital period (s)">
-                {result.period.toFixed(1)}
-              </Descriptions.Item>
-            </Descriptions>
-          </Card>
-        )}
-
-        <Title level={2} style={{ marginTop: 48 }}>
-          Ground Station Contact Windows
-        </Title>
-        <Paragraph type="secondary">
-          Uses the orbit from the form above to find every window, over the next 24 hours, during
-          which the spacecraft is above the station's horizon.
-        </Paragraph>
-
-        <Card>
-          <Form
-            form={groundForm}
-            layout="vertical"
-            onFinish={onFinishGroundStation}
-            initialValues={{ longitude: 0, latitude: 0, stationAltitude: 0 }}
-          >
-            <Form.Item label="Longitude (degrees)" name="longitude" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} min={-180} max={180} />
-            </Form.Item>
-            <Form.Item label="Latitude (degrees)" name="latitude" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} min={-90} max={90} />
-            </Form.Item>
-            <Form.Item label="Station altitude (km)" name="stationAltitude" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item>
-              <Button type="primary" htmlType="submit" loading={windowsLoading}>
-                Find contact windows
-              </Button>
-            </Form.Item>
-          </Form>
-        </Card>
-
-        {windowsError && (
-          <Alert
-            style={{ marginTop: 24 }}
-            type="error"
-            showIcon
-            message="Request failed"
-            description={windowsError}
-          />
-        )}
-
-        {windows && (
-          <Card style={{ marginTop: 24 }} title={`Contact windows (${windows.length})`}>
-            <Table
-              size="small"
-              pagination={false}
-              rowKey={(_, index) => index}
-              dataSource={windows}
-              columns={[
-                { title: 'Start (s)', dataIndex: 'start', align: 'center' },
-                { title: 'End (s)', dataIndex: 'end', align: 'center' },
-                {
-                  title: 'Duration (s)',
-                  align: 'center',
-                  render: (_, record) => record.end - record.start,
-                },
-              ]}
+          <Col xs={24} lg={6}>
+            <SpacecraftDetailCard
+              apiBase={API_BASE}
+              spacecraftList={spacecraftList}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onUpdated={handleUpdated}
+              onDeleted={handleDeleted}
             />
-          </Card>
-        )}
-        <Title level={2} style={{ marginTop: 48 }}>
-          Orbit Visualization
-        </Title>
-        <Paragraph type="secondary">
-          Renders the computed orbit track and ground station on a 3D globe, using the same physics as
-          the forms above.
-        </Paragraph>
+          </Col>
+        </Row>
 
-        <Card>
-          <OrbitGlobe track={track} period={period} station={stationPos} />
-        </Card>
+        <Row style={{ marginTop: 24 }}>
+          <Col span={24}>
+            <GroundStationsCard stations={stations} contactWindows={contactWindows} />
+          </Col>
+        </Row>
       </Content>
 
       <Footer style={{ textAlign: 'center' }}>
-        <Text type="secondary">
-          Spacecraft Simulator — Python/FastAPI backend, React/Ant Design frontend
-        </Text>
+        Spacecraft Simulator — Python/FastAPI backend, React/Ant Design frontend
       </Footer>
     </Layout>
   )
