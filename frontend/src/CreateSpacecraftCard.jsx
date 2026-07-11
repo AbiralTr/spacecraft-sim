@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Card, Form, Input, InputNumber, Button, Alert } from 'antd'
+import { getPeriapsisAltitude, MIN_PERIAPSIS_ALTITUDE_KM } from './orbitValidation'
 
 function CreateSpacecraftCard({ apiBase, onCreated }) {
   const [form] = Form.useForm()
@@ -46,7 +47,23 @@ function CreateSpacecraftCard({ apiBase, onCreated }) {
         <Form.Item label="Inclination (degrees)" name="inclination" rules={[{ required: true }]}>
           <InputNumber style={{ width: '100%' }} min={0} max={180} />
         </Form.Item>
-        <Form.Item label="Eccentricity" name="eccentricity" rules={[{ required: true }]}>
+        <Form.Item
+          label="Eccentricity"
+          name="eccentricity"
+          dependencies={['altitude']}
+          rules={[
+            { required: true },
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                const altitude = getFieldValue('altitude')
+                if (getPeriapsisAltitude(altitude, value) > MIN_PERIAPSIS_ALTITUDE_KM) {
+                  return Promise.resolve()
+                }
+                return Promise.reject(new Error('Orbit periapsis too low for this altitude/eccentricity combo'))
+              },
+            }),
+          ]}
+        >
           <InputNumber style={{ width: '100%' }} min={0} max={0.99} step={0.01} />
         </Form.Item>
         <Form.Item style={{ marginBottom: 0 }}>
