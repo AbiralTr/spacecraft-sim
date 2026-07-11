@@ -3,6 +3,8 @@ import math
 from spacecraft import Spacecraft
 from utils import MathHelpers
 
+EARTH_ANGULAR_RATE = 2 * math.pi / 86400
+
 class GroundStation:
 
     def __init__(self, name, pos):
@@ -35,10 +37,20 @@ class GroundStation:
         z = (R + self.altitude) * math.sin(lat)
 
         return (x, y, z)
-    
+   
+    def get_eci_coordinates(self, time):
+        """
+        Rotates the stations fixed (ECEF) position by however the EARTH has spin by time seconds, giving its position in the same inertial frame the spacecraft's position is computed in
+        """
+        static_position = self.get_cartesian_coordinates
+        theta = EARTH_ANGULAR_RATE * time
+        eci_coordinates = MathHelpers.rotate_around_z(static_position, theta)
+        
+        return eci_coordinates
+
     def check_spacecraft_visibility(self, time, spacecraft) -> bool:
         satellite_position = tuple(spacecraft.get_position(time).values())
-        station_position = self.get_cartesian_coordinates
+        station_position = self.get_eci_coordinates(time)
         
         to_sat = MathHelpers.subtract_two_vectors(satellite_position, station_position)
         dot_product = MathHelpers.compute_dot_product(to_sat, station_position)

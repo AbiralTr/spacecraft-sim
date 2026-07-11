@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import * as Cesium from 'cesium'
+import { EARTH_ANGULAR_RATE } from './earthRotation'
 
 // Arbitrary fixed epoch. The backend's physics has no real-world time
 // reference (no RAAN, no Earth rotation), so this just anchors Cesium's
@@ -47,6 +48,7 @@ function OrbitGlobe({ track, period, stations }) {
     if (viewer.scene.sun) viewer.scene.sun.show = false
     viewer.scene.fog.enabled = false
     viewer.scene.backgroundColor = Cesium.Color.TRANSPARENT
+    viewer.clock.currentTime = EPOCH.clone()
     viewerRef.current = viewer
 
     // Default framing before any orbit is selected, so stations are visible immediately.
@@ -55,13 +57,32 @@ function OrbitGlobe({ track, period, stations }) {
       { duration: 0 },
     )
 
+    // The globe and everything drawn on it (ground stations) sit in Earth's
+    // fixed, surface-rotating frame and never actually move themselves. To
+    // make Earth's spin visible, we instead counter-rotate the camera into
+    // an inertial frame every frame - the same trick Cesium's own satellite
+    // trackers use, but driven by our own simplified rotation rate (rather
+    // than Cesium's real-sidereal-time default) so it stays in sync with the
+    // backend's simplified physics.
+    const spinListener = (scene, time) => {
+      if (scene.mode !== Cesium.SceneMode.SCENE3D) return
+      const elapsed = Cesium.JulianDate.secondsDifference(time, EPOCH)
+      const inertialToFixed = Cesium.Matrix3.fromRotationZ(-EARTH_ANGULAR_RATE * elapsed)
+      const offset = Cesium.Cartesian3.clone(viewer.camera.position)
+      const transform = Cesium.Matrix4.fromRotationTranslation(inertialToFixed)
+      viewer.camera.lookAtTransform(transform, offset)
+    }
+    viewer.scene.postUpdate.addEventListener(spinListener)
+
     return () => {
+      viewer.scene.postUpdate.removeEventListener(spinListener)
       viewer.destroy()
       viewerRef.current = null
     }
   }, [])
 
-  // Ground stations: fixed set, rendered independently of whichever spacecraft is selected.
+  // Ground stations: fixed set, fixed positions - they visually rotate along
+  // with the globe automatically via the camera trick above.
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || !stations) return

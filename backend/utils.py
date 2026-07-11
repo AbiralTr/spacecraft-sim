@@ -31,4 +31,17 @@ class MathHelpers:
 
         return E
         
-        
+    def rotate_around_z(v, theta):
+        """
+        v: (x, y, z) tuple
+        theta: rotation angle in radians
+        """
+        x_prime = v[0] * math.cos(theta) - v[1] * math.sin(theta)
+        y_prime = v[0] * math.sin(theta) + v[1] * math.cos(theta)
+        z_prime = v[2]
+
+        return (
+            x_prime,
+            y_prime,
+            z_prime
+        )
