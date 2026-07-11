@@ -60,6 +60,20 @@ def list_spacecraft(db: Session = Depends(get_db)):
     return db.query(SpacecraftRecord).order_by(SpacecraftRecord.created_at).all()
 
 
+@app.get("/api/spacecraft/positions")
+def get_all_positions(time: float, db: Session = Depends(get_db)):
+    records = db.query(SpacecraftRecord).order_by(SpacecraftRecord.created_at).all()
+
+    positions = []
+
+    for record in records:
+        spacecraft = to_spacecraft(record)
+        position = spacecraft.get_position(time)
+        positions.append({"id": record.id, "name": record.name, **position})
+
+    return positions
+
+
 @app.get("/api/spacecraft/{spacecraft_id}", response_model=SpacecraftOut)
 def read_spacecraft(spacecraft_id: int, db: Session = Depends(get_db)):
     return get_spacecraft_record(spacecraft_id, db)
@@ -89,7 +103,6 @@ def read_position(spacecraft_id: int, time: float, db: Session = Depends(get_db)
     position = spacecraft.get_position(time)
     position["period"] = spacecraft.get_period
     return position
-
 
 @app.get("/api/spacecraft/{spacecraft_id}/orbit-track")
 def read_orbit_track(spacecraft_id: int, steps: int = 180, db: Session = Depends(get_db)):
@@ -138,3 +151,6 @@ def read_ground_stations():
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.isdir(frontend_dist):
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+
+
+

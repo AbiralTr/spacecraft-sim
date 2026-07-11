@@ -13,11 +13,41 @@ function toCartesian(point) {
   return new Cesium.Cartesian3(point.x * 1000, point.y * 1000, point.z * 1000)
 }
 
-function OrbitGlobe({ track, period, stations }) {
+// Repeats a spacecraft's single-period track for as long as `totalDuration`
+// lasts, so spacecraft with shorter periods visibly complete multiple orbits
+// while slower ones complete fewer - the same relative pacing real orbits at
+// different altitudes would have.
+function buildLoopingPosition(track, period, totalDuration) {
+  const positionProperty = new Cesium.SampledPositionProperty()
+  positionProperty.forwardExtrapolationType = Cesium.ExtrapolationType.HOLD
+  positionProperty.backwardExtrapolationType = Cesium.ExtrapolationType.HOLD
+
+  for (let cycleStart = 0; cycleStart <= totalDuration; cycleStart += period) {
+    track.forEach(({ time, ...point }, i) => {
+      // Every cycle after the first shares its start instant with the
+      // previous cycle's end instant (same position too) - skip the dupe.
+      if (cycleStart > 0 && i === 0) return
+      positionProperty.addSample(
+        Cesium.JulianDate.addSeconds(EPOCH, cycleStart + time, new Cesium.JulianDate()),
+        toCartesian(point),
+      )
+    })
+  }
+
+  return positionProperty
+}
+
+function OrbitGlobe({ stations, allTracks, selectedId, onSelectSpacecraft }) {
   const containerRef = useRef(null)
   const viewerRef = useRef(null)
-  const orbitEntitiesRef = useRef([])
+  const orbitPathEntitiesRef = useRef([])
   const stationEntitiesRef = useRef([])
+  const spacecraftEntitiesRef = useRef([])
+  const onSelectSpacecraftRef = useRef(onSelectSpacecraft)
+
+  useEffect(() => {
+    onSelectSpacecraftRef.current = onSelectSpacecraft
+  }, [onSelectSpacecraft])
 
   useEffect(() => {
     const baseLayer = Cesium.ImageryLayer.fromProviderAsync(
@@ -48,7 +78,11 @@ function OrbitGlobe({ track, period, stations }) {
     if (viewer.scene.sun) viewer.scene.sun.show = false
     viewer.scene.fog.enabled = false
     viewer.scene.backgroundColor = Cesium.Color.TRANSPARENT
+    // Set once, here, rather than in the per-fleet-update effect below - so a
+    // fleet-wide data refresh (e.g. creating an unrelated spacecraft) never
+    // snaps every satellite's animation back to the start.
     viewer.clock.currentTime = EPOCH.clone()
+    viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP
     viewerRef.current = viewer
 
     // Default framing before any orbit is selected, so stations are visible immediately.
@@ -74,7 +108,19 @@ function OrbitGlobe({ track, period, stations }) {
     }
     viewer.scene.postUpdate.addEventListener(spinListener)
 
+    // Clicking a spacecraft marker (see the allTracks effect below, which
+    // tags each entity with a plain .spacecraftId) drives selection back up
+    // to the parent, same as picking one from the dropdown.
+    const clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+    clickHandler.setInputAction((movement) => {
+      const picked = viewer.scene.pick(movement.position)
+      if (Cesium.defined(picked) && picked.id && picked.id.spacecraftId != null) {
+        onSelectSpacecraftRef.current?.(picked.id.spacecraftId)
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+
     return () => {
+      clickHandler.destroy()
       viewer.scene.postUpdate.removeEventListener(spinListener)
       viewer.destroy()
       viewerRef.current = null
@@ -96,56 +142,99 @@ function OrbitGlobe({ track, period, stations }) {
     )
   }, [stations])
 
-  // Selected spacecraft's orbit track, redrawn independently of the station markers above.
+  const validTracks = (allTracks || []).filter((s) => s.track && s.track.length > 0 && s.period > 0)
+  const selectedTrack = validTracks.find((s) => s.id === selectedId) ?? null
+
+  // Every spacecraft animates continuously, looping its own track on its own
+  // period - shorter-period spacecraft visibly lap slower ones. The selected
+  // spacecraft is highlighted and additionally gets its path drawn as a
+  // polyline. Clock start/stop/multiplier just grow to fit whichever
+  // spacecraft has the longest period; `currentTime` itself is never touched
+  // here (only once, at viewer creation above).
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer) return
 
-    orbitEntitiesRef.current.forEach((entity) => viewer.entities.remove(entity))
-    orbitEntitiesRef.current = []
+    spacecraftEntitiesRef.current.forEach((entity) => viewer.entities.remove(entity))
+    spacecraftEntitiesRef.current = []
+    orbitPathEntitiesRef.current.forEach((entity) => viewer.entities.remove(entity))
+    orbitPathEntitiesRef.current = []
 
-    if (!track || track.length === 0 || !period) return
+    if (validTracks.length === 0) return
 
-    const stop = Cesium.JulianDate.addSeconds(EPOCH, period, new Cesium.JulianDate())
-    const positionProperty = new Cesium.SampledPositionProperty()
-    const pathPositions = track.map(({ time, ...point }) => {
-      const cartesian = toCartesian(point)
-      positionProperty.addSample(Cesium.JulianDate.addSeconds(EPOCH, time, new Cesium.JulianDate()), cartesian)
-      return cartesian
-    })
-
+    const totalDuration = Math.max(...validTracks.map((s) => s.period))
+    const stop = Cesium.JulianDate.addSeconds(EPOCH, totalDuration, new Cesium.JulianDate())
     viewer.clock.startTime = EPOCH.clone()
     viewer.clock.stopTime = stop.clone()
-    viewer.clock.currentTime = EPOCH.clone()
-    viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP
-    viewer.clock.multiplier = Math.max(period / 120, 1) // compress one orbit into ~2 real minutes
+    viewer.clock.multiplier = Math.max(totalDuration / 120, 1) // compress the longest orbit into ~2 real minutes
     viewer.clock.shouldAnimate = true
     viewer.timeline.zoomTo(EPOCH, stop)
 
-    orbitEntitiesRef.current.push(
-      viewer.entities.add({
-        polyline: {
-          positions: pathPositions,
-          width: 2,
-          material: Cesium.Color.CYAN.withAlpha(0.7),
+    spacecraftEntitiesRef.current = validTracks.map((s) => {
+      const isSelected = s.id === selectedId
+      const entity = viewer.entities.add({
+        position: buildLoopingPosition(s.track, s.period, totalDuration),
+        point: {
+          pixelSize: isSelected ? 10 : 6,
+          color: isSelected ? Cesium.Color.YELLOW : Cesium.Color.DEEPSKYBLUE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: isSelected ? 1 : 0,
         },
-      }),
-    )
+        label: {
+          text: s.name,
+          font: '12px sans-serif',
+          pixelOffset: new Cesium.Cartesian2(0, -14),
+          fillColor: Cesium.Color.WHITE,
+          showBackground: true,
+          backgroundColor: Cesium.Color.BLACK.withAlpha(0.5),
+          show: isSelected,
+        },
+      })
+      entity.spacecraftId = s.id
+      return entity
+    })
 
-    orbitEntitiesRef.current.push(
-      viewer.entities.add({
-        position: positionProperty,
-        point: { pixelSize: 10, color: Cesium.Color.YELLOW },
-      }),
-    )
+    if (selectedTrack) {
+      orbitPathEntitiesRef.current.push(
+        viewer.entities.add({
+          polyline: {
+            positions: selectedTrack.track.map(({ time, ...point }) => toCartesian(point)),
+            width: 2,
+            material: Cesium.Color.CYAN.withAlpha(0.7),
+          },
+        }),
+      )
+    }
+    // validTracks/selectedTrack are derived fresh from allTracks/selectedId every render, so those two cover this effect's real inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTracks, selectedId])
 
-    // Center on Earth itself rather than the entities' bounding sphere, which
-    // would drift off-center since the orbit isn't symmetric around the origin.
-    const maxRadius = Math.max(...pathPositions.map((p) => Cesium.Cartesian3.magnitude(p)))
+  // Recenters the camera on the selected spacecraft's orbit. Kept separate
+  // from the effect above and keyed on primitive values (id + period, not
+  // the allTracks array reference) so an unrelated fleet-wide refresh - which
+  // produces a brand new allTracks array even when nothing relevant changed -
+  // doesn't yank the camera around. Only an actual selection change, or the
+  // selected spacecraft's own orbit changing shape, should recenter it.
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer) return
+
+    if (!selectedTrack) {
+      viewer.camera.flyToBoundingSphere(
+        new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, EARTH_RADIUS_KM * 1000 * 1.5),
+        { duration: 0 },
+      )
+      return
+    }
+
+    const maxRadius = Math.max(
+      ...selectedTrack.track.map(({ time, ...point }) => Cesium.Cartesian3.magnitude(toCartesian(point))),
+    )
     viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(Cesium.Cartesian3.ZERO, maxRadius), {
       duration: 0,
     })
-  }, [track, period])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, selectedTrack?.period])
 
   return <div ref={containerRef} style={{ width: '100%', height: 480 }} />
 }

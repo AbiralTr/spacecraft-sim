@@ -16,9 +16,8 @@ function App() {
   const [spacecraftList, setSpacecraftList] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [stations, setStations] = useState([])
-  const [track, setTrack] = useState(null)
-  const [period, setPeriod] = useState(null)
   const [contactWindows, setContactWindows] = useState(null)
+  const [allTracks, setAllTracks] = useState([])
 
   useEffect(() => {
     fetch(`${API_BASE}/api/spacecraft`)
@@ -32,19 +31,39 @@ function App() {
       .then(setStations)
   }, [])
 
+  // Fetches every spacecraft's full orbit track (not just the selected one)
+  // so the globe can animate the whole fleet at once, reusing the same
+  // per-id endpoint the single-spacecraft view always relied on. Guards two
+  // real failure modes: one spacecraft's fetch failing shouldn't blank out
+  // the rest (Promise.allSettled + filter), and a slow response racing a
+  // newer one - e.g. after quickly creating/deleting spacecraft - shouldn't
+  // clobber fresher state (the `cancelled` flag).
+  useEffect(() => {
+    let cancelled = false
+    if (spacecraftList.length === 0) {
+      setAllTracks([])
+      return
+    }
+    Promise.allSettled(
+      spacecraftList.map((s) =>
+        fetch(`${API_BASE}/api/spacecraft/${s.id}/orbit-track`)
+          .then((res) => res.json())
+          .then((data) => ({ id: s.id, name: s.name, ...data })),
+      ),
+    ).then((results) => {
+      if (cancelled) return
+      setAllTracks(results.filter((r) => r.status === 'fulfilled').map((r) => r.value))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [spacecraftList])
+
   useEffect(() => {
     if (selectedId == null) {
-      setTrack(null)
-      setPeriod(null)
       setContactWindows(null)
       return
     }
-    fetch(`${API_BASE}/api/spacecraft/${selectedId}/orbit-track`)
-      .then((res) => res.json())
-      .then((data) => {
-        setTrack(data.track)
-        setPeriod(data.period)
-      })
     fetch(`${API_BASE}/api/spacecraft/${selectedId}/contact-windows`)
       .then((res) => res.json())
       .then(setContactWindows)
@@ -90,7 +109,12 @@ function App() {
 
           <Col xs={24} lg={12}>
             <Card title="Orbit Visualization" style={{ height: '100%' }} styles={{ body: { padding: 0 } }}>
-              <OrbitGlobe track={track} period={period} stations={stations} />
+              <OrbitGlobe
+                stations={stations}
+                allTracks={allTracks}
+                selectedId={selectedId}
+                onSelectSpacecraft={setSelectedId}
+              />
             </Card>
           </Col>
 
