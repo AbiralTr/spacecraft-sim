@@ -7,3 +7,7 @@ body {
   margin: 0;
   background: #141414;
 }
+
+.cesium-credit-logoContainer {
+  display: none;
+}
