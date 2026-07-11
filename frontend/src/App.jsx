@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Layout, Form, InputNumber, Button, Card, Descriptions, Typography, Alert, Table } from 'antd'
+import OrbitGlobe from './OrbitGlobe'
 
 const { Header, Content, Footer } = Layout
 const { Title, Paragraph, Text } = Typography
@@ -19,6 +20,53 @@ function App() {
   const [windows, setWindows] = useState(null)
   const [windowsError, setWindowsError] = useState(null)
   const [windowsLoading, setWindowsLoading] = useState(false)
+
+  const [groundForm] = Form.useForm()
+  const station = Form.useWatch([], groundForm) ?? {}
+
+  const [track, setTrack] = useState(null)
+  const [period, setPeriod] = useState(null)
+  const [stationPos, setStationPos] = useState(null)
+
+  useEffect(() => {
+    if (orbit.altitude == null || orbit.inclination == null || orbit.eccentricity == null) return
+    const handle = setTimeout(async () => {
+      const params = new URLSearchParams({
+        altitude: orbit.altitude,
+        inclination: orbit.inclination,
+        eccentricity: orbit.eccentricity,
+      })
+      try {
+        const res = await fetch(`${API_BASE}/api/orbit-track?${params.toString()}`)
+        if (!res.ok) return
+        const data = await res.json()
+        setTrack(data.track)
+        setPeriod(data.period)
+      } catch {
+        // ignore transient fetch errors while the form is mid-edit
+      }
+    }, 400)
+    return () => clearTimeout(handle)
+  }, [orbit.altitude, orbit.inclination, orbit.eccentricity])
+
+  useEffect(() => {
+    if (station.longitude == null || station.latitude == null || station.stationAltitude == null) return
+    const handle = setTimeout(async () => {
+      const params = new URLSearchParams({
+        longitude: station.longitude,
+        latitude: station.latitude,
+        station_altitude: station.stationAltitude,
+      })
+      try {
+        const res = await fetch(`${API_BASE}/api/ground-station?${params.toString()}`)
+        if (!res.ok) return
+        setStationPos(await res.json())
+      } catch {
+        // ignore transient fetch errors while the form is mid-edit
+      }
+    }, 400)
+    return () => clearTimeout(handle)
+  }, [station.longitude, station.latitude, station.stationAltitude])
 
   const onFinishPosition = async (values) => {
     setLoading(true)
@@ -165,6 +213,7 @@ function App() {
 
         <Card>
           <Form
+            form={groundForm}
             layout="vertical"
             onFinish={onFinishGroundStation}
             initialValues={{ longitude: 0, latitude: 0, stationAltitude: 0 }}
@@ -215,6 +264,17 @@ function App() {
             />
           </Card>
         )}
+        <Title level={2} style={{ marginTop: 48 }}>
+          Orbit Visualization
+        </Title>
+        <Paragraph type="secondary">
+          Renders the computed orbit track and ground station on a 3D globe, using the same physics as
+          the forms above.
+        </Paragraph>
+
+        <Card>
+          <OrbitGlobe track={track} period={period} station={stationPos} />
+        </Card>
       </Content>
 
       <Footer style={{ textAlign: 'center' }}>
