@@ -8,8 +8,6 @@ import GroundStationsCard from './GroundStationsCard'
 const { Header, Content, Footer } = Layout
 const { Title } = Typography
 
-// In dev, Vite (5173) and FastAPI (8000) run as separate origins.
-// In production, FastAPI serves this app itself, so requests are same-origin.
 const API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : ''
 
 function App() {
@@ -31,13 +29,6 @@ function App() {
       .then(setStations)
   }, [])
 
-  // Fetches every spacecraft's full orbit track (not just the selected one)
-  // so the globe can animate the whole fleet at once, reusing the same
-  // per-id endpoint the single-spacecraft view always relied on. Guards two
-  // real failure modes: one spacecraft's fetch failing shouldn't blank out
-  // the rest (Promise.allSettled + filter), and a slow response racing a
-  // newer one - e.g. after quickly creating/deleting spacecraft - shouldn't
-  // clobber fresher state (the `cancelled` flag).
   useEffect(() => {
     let cancelled = false
     if (spacecraftList.length === 0) {
