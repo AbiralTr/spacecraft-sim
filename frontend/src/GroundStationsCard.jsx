@@ -10,12 +10,13 @@ function GroundStationsCard({ stations, contactWindows }) {
   const windowsByStation = new Map((contactWindows ?? []).map((entry) => [entry.station_id, entry.windows]))
 
   const columns = [
-    { title: 'Station', dataIndex: 'name' },
+    { title: 'Station', dataIndex: 'name', width: 140 },
     { title: 'Longitude', dataIndex: 'longitude', align: 'center', width: 110 },
     { title: 'Latitude', dataIndex: 'latitude', align: 'center', width: 110 },
     {
       title: 'Contact windows (next 24h)',
       align: 'center',
+      width: 220,
       render: (_, station) => {
         const windows = windowsByStation.get(station.id)
         if (!windows) return <Text type="secondary">select a spacecraft</Text>
@@ -33,7 +34,7 @@ function GroundStationsCard({ stations, contactWindows }) {
         pagination={false}
         dataSource={stations}
         columns={columns}
-        scroll={{ y: 320 }}
+        scroll={{ x: 580, y: 320 }}
       />
     </Card>
   )
